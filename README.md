@@ -1,4 +1,4 @@
-# 🏗️ Architecture advisor
+# 🏗️ Architecture Advisor
 
 A modern, AI-powered web application that helps developers and architects decide whether to adopt a **microservices architecture** or stick with a **monolith** based on detailed project analysis.
 
