@@ -1,71 +1,157 @@
 import { UserInput, Recommendation } from '../types';
 
 export class RecommendationEngine {
-  private static calculateScore(input: UserInput): number {
-    let score = 0;
+  private static clampScore(value: number): number {
+    return Math.max(0, Math.min(100, Math.round(value)));
+  }
 
-    // Team size factor (0-20 points)
+  private static calculateScore(input: UserInput): {
+    total: number;
+    breakdown: Record<string, number>;
+  } {
+    const breakdown: Record<string, number> = {
+      scale: 0,
+      complexity: 0,
+      team: 0,
+      devops: 0,
+      infrastructure: 0
+    };
+
+    // Scale factor (0-20)
+    switch (input.projectDetails.expectedScale) {
+      case 'enterprise':
+        breakdown.scale = 20;
+        break;
+      case 'large':
+        breakdown.scale = 15;
+        break;
+      case 'medium':
+        breakdown.scale = 8;
+        break;
+      default:
+        breakdown.scale = 2;
+        break;
+    }
+
+    // Complexity factor (0-25)
+    const patterns = input.systemComplexity.communicationPatterns?.length || 0;
+    if (patterns >= 4) breakdown.complexity += 10;
+    else if (patterns >= 2) breakdown.complexity += 6;
+    else if (patterns === 1) breakdown.complexity += 3;
+
+    if (input.systemComplexity.expectedLatency === 'low') breakdown.complexity += 6;
+    if (input.systemComplexity.availabilityTarget === '99.99') breakdown.complexity += 5;
+    if (input.systemComplexity.availabilityTarget === '99.999') breakdown.complexity += 7;
+
+    const deployPattern = input.systemComplexity.deploymentPattern;
+    if (deployPattern === 'blue-green' || deployPattern === 'canary') breakdown.complexity += 4;
+    if (deployPattern === 'active-active') breakdown.complexity += 5;
+
+    breakdown.complexity = Math.min(breakdown.complexity, 25);
+
+    // Team readiness factor (0-20)
     const teamSize = input.teamMetrics.size;
-    if (teamSize >= 21) score += 20;
-    else if (teamSize >= 11) score += 15;
-    else if (teamSize >= 6) score += 10;
-    else if (teamSize >= 3) score += 5;
+    if (teamSize >= 21) breakdown.team += 10;
+    else if (teamSize >= 11) breakdown.team += 8;
+    else if (teamSize >= 6) breakdown.team += 6;
+    else if (teamSize >= 3) breakdown.team += 4;
+    else breakdown.team += 2;
 
-    // Experience level factor (0-15 points)
-    const experience = input.teamMetrics.experienceLevel;
-    if (experience === 'senior') score += 15;
-    else if (experience === 'mixed') score += 10;
-    else if (experience === 'mid') score += 5;
+    switch (input.teamMetrics.experienceLevel) {
+      case 'senior':
+        breakdown.team += 10;
+        break;
+      case 'mixed':
+        breakdown.team += 7;
+        break;
+      case 'mid':
+        breakdown.team += 5;
+        break;
+      default:
+        breakdown.team += 2;
+        break;
+    }
 
-    // System complexity factor (0-25 points)
-    const complexity = input.systemComplexity;
-    if (complexity.communicationPatterns?.length > 2) score += 8;
-    if (complexity.expectedLatency === 'low') score += 8;
-    if (complexity.availabilityTarget === '99.99' || complexity.availabilityTarget === '99.999') score += 9;
+    // DevOps maturity factor (0-15)
+    switch (input.teamMetrics.cicdMaturity) {
+      case 'advanced':
+        breakdown.devops += 9;
+        break;
+      case 'intermediate':
+        breakdown.devops += 6;
+        break;
+      case 'basic':
+        breakdown.devops += 3;
+        break;
+      default:
+        breakdown.devops += 0;
+        break;
+    }
 
-    // Scale factor (0-15 points)
-    const scale = input.projectDetails.expectedScale;
-    if (scale === 'enterprise') score += 15;
-    else if (scale === 'large') score += 10;
-    else if (scale === 'medium') score += 5;
+    switch (input.teamMetrics.deploymentFrequency) {
+      case 'daily':
+        breakdown.devops += 6;
+        break;
+      case 'weekly':
+        breakdown.devops += 4;
+        break;
+      case 'monthly':
+        breakdown.devops += 2;
+        break;
+      default:
+        breakdown.devops += 0;
+        break;
+    }
 
-    // CI/CD maturity factor (0-15 points)
-    const cicdMaturity = input.teamMetrics.cicdMaturity;
-    if (cicdMaturity === 'advanced') score += 15;
-    else if (cicdMaturity === 'intermediate') score += 10;
-    else if (cicdMaturity === 'basic') score += 5;
+    // Infrastructure readiness factor (0-20)
+    const infra = input.infrastructure;
+    const infraSignals = [
+      infra.cloudProvider?.length || 0,
+      infra.cicd?.length || 0,
+      infra.databases?.length || 0,
+      infra.messaging?.length || 0,
+      infra.monitoring?.length || 0,
+      infra.caching?.length || 0
+    ].reduce((sum, value) => sum + Math.min(value, 2), 0);
+    breakdown.infrastructure = Math.min(20, infraSignals * 2);
 
-    // Deployment frequency factor (0-10 points)
-    const deploymentFreq = input.teamMetrics.deploymentFrequency;
-    if (deploymentFreq === 'daily') score += 10;
-    else if (deploymentFreq === 'weekly') score += 7;
-    else if (deploymentFreq === 'monthly') score += 3;
+    const total = this.clampScore(
+      breakdown.scale +
+        breakdown.complexity +
+        breakdown.team +
+        breakdown.devops +
+        breakdown.infrastructure
+    );
 
-    return Math.min(score, 100);
+    return { total, breakdown };
   }
 
   public static generateRecommendation(input: UserInput): Recommendation {
-    const score = this.calculateScore(input);
+    const { total: score, breakdown } = this.calculateScore(input);
 
     let architecture: 'monolith' | 'modular-monolith' | 'microservices';
     let confidence: number;
 
-    if (score <= 30) {
+    if (score <= 35) {
       architecture = 'monolith';
-      confidence = 85;
-    } else if (score <= 60) {
+    } else if (score <= 65) {
       architecture = 'modular-monolith';
-      confidence = 80;
     } else {
       architecture = 'microservices';
-      confidence = 90;
     }
+
+    const distance = architecture === 'monolith'
+      ? 35 - score
+      : architecture === 'modular-monolith'
+      ? Math.min(score - 35, 65 - score)
+      : score - 65;
+    confidence = Math.min(95, Math.max(70, 70 + Math.round(distance * 1.2)));
 
     return {
       architecture,
       score,
       confidence,
-      reasoning: this.generateReasoning(input, architecture, score),
+      reasoning: this.generateReasoning(input, architecture, score, breakdown),
       pros: this.generatePros(architecture, input),
       cons: this.generateCons(architecture, input),
       risks: this.generateRisks(architecture, input),
@@ -74,21 +160,26 @@ export class RecommendationEngine {
     };
   }
 
-  private static generateReasoning(input: UserInput, architecture: string, score: number): string[] {
+  private static generateReasoning(
+    input: UserInput,
+    architecture: string,
+    score: number,
+    breakdown: Record<string, number>
+  ): string[] {
     const reasoning = [];
 
     if (architecture === 'monolith') {
-      reasoning.push(`Your team size of ${input.teamMetrics.size} developers works well with a monolithic approach`);
-      reasoning.push(`${input.teamMetrics.experienceLevel} experience level suggests starting with simpler architecture`);
-      reasoning.push(`${input.projectDetails.expectedScale} scale doesn't require distributed architecture complexity`);
+      reasoning.push(`Current scale (${input.projectDetails.expectedScale || 'small'}) and complexity suggest a simpler foundation first`);
+      reasoning.push(`Team size (${input.teamMetrics.size || 'small'}) and experience level favor faster iteration in a single codebase`);
+      reasoning.push(`Operational readiness score (${breakdown.devops}/15) is better suited to centralized deployments`);
     } else if (architecture === 'modular-monolith') {
-      reasoning.push(`Your project complexity requires better separation of concerns than a traditional monolith`);
-      reasoning.push(`Team size allows for some parallel development within modules`);
-      reasoning.push(`Provides a good migration path to microservices if needed`);
+      reasoning.push(`Balanced score (${score}/100) indicates moderate complexity without full distributed needs`);
+      reasoning.push(`You can gain separation of concerns while avoiding microservices overhead`);
+      reasoning.push(`Keeps a low-risk migration path if scale or complexity increases`);
     } else {
-      reasoning.push(`Large team size (${input.teamMetrics.size}+) can work effectively with distributed services`);
-      reasoning.push(`High availability and performance requirements justify the complexity`);
-      reasoning.push(`Advanced CI/CD maturity supports independent service deployments`);
+      reasoning.push(`Higher scale and complexity indicators justify distributed services`);
+      reasoning.push(`Team size (${input.teamMetrics.size || 'large'}) supports parallel service ownership`);
+      reasoning.push(`DevOps readiness (${breakdown.devops}/15) supports independent deployments`);
     }
 
     return reasoning;
@@ -160,8 +251,16 @@ export class RecommendationEngine {
       risks.push('Lack of CI/CD will make microservices management very difficult');
     }
 
+    if (architecture === 'microservices' && input.teamMetrics.deploymentFrequency === 'quarterly') {
+      risks.push('Low deployment frequency could slow service evolution and coordination');
+    }
+
     if (architecture === 'monolith' && input.projectDetails.expectedScale === 'enterprise') {
       risks.push('May face scalability issues with enterprise-level traffic');
+    }
+
+    if (architecture === 'monolith' && (input.systemComplexity.communicationPatterns?.length || 0) >= 4) {
+      risks.push('High integration complexity may cause a monolith to become tightly coupled');
     }
 
     return risks;

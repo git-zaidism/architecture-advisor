@@ -70,31 +70,16 @@ npm run dev
 npm run build
 ```
 
-### Backend Setup
-```bash
-# Navigate to backend directory
-cd backend
-
-# Build with Maven
-mvn clean install
-
-# Run Spring Boot application
-mvn spring-boot:run
-```
+### Backend Setup (Optional)
+This repository currently includes the frontend only. If you add a backend later, you can connect it in the API layer.
 
 ### Environment Configuration
-Create `.env` files for both frontend and backend:
+Create a `.env` file for the frontend (keys are exposed in the browser):
 
 **Frontend (.env)**
 ```env
-VITE_API_BASE_URL=http://localhost:8080/api
-VITE_ENABLE_MOCK_API=true
-```
-
-**Backend (application.properties)**
-```properties
-server.port=8080
-spring.application.name=architecture-wizard
+VITE_GROQ_API_KEY=your_groq_api_key_here
+VITE_GROQ_MODEL=llama-3.1-8b-instant
 ```
 
 ## 🎨 UI/UX Features
@@ -110,4 +95,3 @@ spring.application.name=architecture-wizard
 - **Smart Defaults**: Intelligent pre-selection based on common patterns
 - **Real-time Feedback**: Immediate validation and helpful error messages
 - **Progress Persistence**: Save and resume functionality (planned)
-
